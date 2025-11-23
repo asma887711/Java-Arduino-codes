@@ -1,0 +1,224 @@
+//Driver.java
+
+package shooting_game;  
+// Places this file inside the shooting_game package so both classes stay grouped together.
+
+import javax.swing.*;  
+// Imports all Swing classes for the graphical interface.
+
+import java.awt.*;  
+// Imports layout managers, fonts, and other drawing tools.
+
+import java.util.concurrent.atomic.AtomicBoolean;  
+// Imports AtomicBoolean so we can control game start and stop safely across threads.
+
+public class Driver {  
+// Main class that controls the game window and the serial communication.
+
+    private static int scoreP1 = 0;  
+    // Tracks the score for player one.
+
+    private static int scoreP2 = 0;  
+    // Tracks the score for player two.
+
+    public static void main(String[] args) throws InterruptedException {  
+    // Starting point of the Java program. It can throw InterruptedException because of sleep calls.
+
+        SerialPortHandle sph = new SerialPortHandle("COM5");  
+        // Creates an object to talk to the XBee module through COM5.
+
+        JFrame frame = new JFrame("Laser Shooting Game");  
+        // Creates the main window for the game.
+
+        frame.setSize(500, 400);  
+        // Sets the size of the window.
+
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);  
+        // Makes the program close completely when the window is closed.
+
+        frame.setLayout(new BorderLayout());  
+        // Uses a border layout so items can be placed at the top, center, bottom, etc.
+
+        JLabel title = new JLabel("Laser Shooting Game | P1 Red | P2 Blue", SwingConstants.CENTER);  
+        // Creates the title text and centers it.
+
+        title.setFont(new Font("Arial", Font.BOLD, 24));  
+        // Makes the title larger and bold.
+
+        frame.add(title, BorderLayout.NORTH);  
+        // Puts the title at the top of the window.
+
+        JPanel scoreboard = new JPanel(new GridLayout(3, 1));  
+        // Creates a panel that holds three labels for scores and the timer.
+
+        JLabel p1Label = new JLabel("Player 1 Score: 0", SwingConstants.CENTER);  
+        // Label for player one score.
+
+        JLabel p2Label = new JLabel("Player 2 Score: 0", SwingConstants.CENTER);  
+        // Label for player two score.
+
+        JLabel timerLabel = new JLabel("Time: 60s", SwingConstants.CENTER);  
+        // Label that shows the time remaining.
+
+        p1Label.setFont(new Font("Arial", Font.BOLD, 20));  
+        // Makes the player one score label bold and larger.
+
+        p2Label.setFont(new Font("Arial", Font.BOLD, 20));  
+        // Same as above for player two.
+
+        timerLabel.setFont(new Font("Arial", Font.BOLD, 22));  
+        // Slightly larger font for the timer.
+
+        scoreboard.add(p1Label);  
+        // Places the player one label in the scoreboard panel.
+
+        scoreboard.add(p2Label);  
+        // Places the player two label in the scoreboard panel.
+
+        scoreboard.add(timerLabel);  
+        // Places the timer below both scores.
+
+        frame.add(scoreboard, BorderLayout.CENTER);  
+        // Places the whole scoreboard in the center of the window.
+
+        JTextArea logArea = new JTextArea();  
+        // Text area that shows all incoming and outgoing messages.
+
+        logArea.setEditable(false);  
+        // Prevents the user from typing inside the log.
+
+        JScrollPane scroll = new JScrollPane(logArea);  
+        // Adds scrolling to the log area so older messages do not disappear.
+
+        frame.add(scroll, BorderLayout.SOUTH);  
+        // Places the log at the bottom of the window.
+
+        JButton startBtn = new JButton("START GAME");  
+        // Button that starts the game when pressed.
+
+        frame.add(startBtn, BorderLayout.NORTH);  
+        // Puts the button under the title.
+
+        frame.setVisible(true);  
+        // Makes the graphical window appear on the screen.
+
+        AtomicBoolean gameRunning = new AtomicBoolean(false);  
+        // Boolean that tracks if the game is active. Atomic for thread safety.
+
+        startBtn.addActionListener(e -> {  
+        // Runs this code when the start button is pressed.
+
+            if (gameRunning.get()) return;  
+            // Stops the user from starting the game twice.
+
+            sph.send("START");  
+            // Sends the START command to all XBee players.
+
+            logArea.append("Sent: START\n");  
+            // Shows the sent message in the log.
+
+            scoreP1 = 0;  
+            // Resets player one score.
+
+            scoreP2 = 0;  
+            // Resets player two score.
+
+            p1Label.setText("Player 1 Score: 0");  
+            // Updates the text in the interface.
+
+            p2Label.setText("Player 2 Score: 0");  
+            // Same for player two.
+
+            gameRunning.set(true);  
+            // Marks the game as active.
+
+            new Thread(() -> {  
+            // Starts the countdown in a separate thread.
+
+                int timeLeft = 60;  
+                // Sets the game timer to sixty seconds.
+
+                while (timeLeft >= 0 && gameRunning.get()) {  
+                // Updates the timer each second as long as the game is active.
+
+                    timerLabel.setText("Time: " + timeLeft + "s");  
+                    // Shows the updated time.
+
+                    try { Thread.sleep(1000); }  
+                    // Waits one second.
+
+                    catch (InterruptedException ignored) {}  
+                    // If interrupted, we ignore it.
+
+                    timeLeft--;  
+                    // Decreases the timer.
+                }
+
+                sph.send("STOP");  
+                // Sends a stop command when time runs out.
+
+                logArea.append("Sent: STOP\n");  
+                // Logs the event.
+
+                String winnerMessage;  
+                // Message that will show who won.
+
+                if (scoreP1 > scoreP2) {  
+                    winnerMessage = "Player 1 Wins with " + scoreP1 + " points!";
+                } else if (scoreP2 > scoreP1) {
+                    winnerMessage = "Player 2 Wins with " + scoreP2 + " points!";
+                } else {
+                    winnerMessage = "It is a tie with both players having " + scoreP1 + " points!";
+                }
+                // Checks who won and builds the right message.
+
+                logArea.append(winnerMessage + "\n");  
+                // Writes the winner message in the log.
+
+                gameRunning.set(false);  
+                // Marks the game as no longer active.
+            }).start();  
+            // Starts the countdown thread.
+        });
+
+        new Thread(() -> {  
+        // Creates a separate thread to constantly read serial messages.
+
+            while (true) {  
+            // Runs forever while the program is open.
+
+                String incoming = sph.readLine();  
+                // Reads one full line from the XBee.
+
+                if (incoming == null || incoming.isEmpty())  
+                    continue;  
+                // Skips empty messages.
+
+                logArea.append("Received: " + incoming + "\n");  
+                // Shows the incoming message in the log.
+
+                logArea.setCaretPosition(logArea.getDocument().getLength());  
+                // Forces the log to scroll to the bottom.
+
+                if (incoming.startsWith("P1=")) {  
+                // Checks if the message is a score update for player one.
+
+                    scoreP1 = Integer.parseInt(incoming.substring(3));  
+                    // Extracts the score number from the message.
+
+                    p1Label.setText("Player 1 Score: " + scoreP1);  
+                    // Updates the interface.
+                }
+
+                if (incoming.startsWith("P2=")) {  
+                // Same logic but for player two.
+
+                    scoreP2 = Integer.parseInt(incoming.substring(3));
+
+                    p2Label.setText("Player 2 Score: " + scoreP2);
+                }
+            }
+        }).start();  
+        // Starts the serial listener thread.
+    }
+}
