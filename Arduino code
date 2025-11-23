@@ -1,0 +1,234 @@
+//arduino code
+
+#include <Servo.h>  
+// Library for controlling servo motors.
+
+#include <SoftwareSerial.h>  
+// Library that creates a second serial port for communication with the Java program.
+
+// Creates a software serial port on pins 10 (RX) and 11 (TX).
+SoftwareSerial mySerial(10, 11); // RX = 10, TX = 11
+
+// RGB LED for Player 1.
+#define R1 5
+#define G1 6
+#define B1 7
+
+// RGB LED for Player 2.
+#define R2 8
+#define G2 9
+#define B2 12
+
+// Light sensors (photoresistors) for detecting laser hits.
+#define LDR1 A0
+#define LDR2 A1
+
+// Servo motor pins for both players.
+#define SERVO_PIN1 2
+#define SERVO_PIN2 3
+
+int scoreP1 = 0;  
+// Player 1 score.
+
+int scoreP2 = 0;  
+// Player 2 score.
+
+bool hit1 = false;  
+// Prevents repeated scoring for player 1 until the laser is removed.
+
+bool hit2 = false;  
+// Prevents repeated scoring for player 2.
+
+bool gameActive = false;  
+// Game only runs after receiving START from Java.
+
+unsigned long gameStartTime = 0;  
+// Tracks when the game started to increase servo speed over time.
+
+Servo servo1;  
+// Servo for Player 1 target.
+
+Servo servo2;  
+// Servo for Player 2 target.
+
+// Permanent player colors: Player 1 is red, Player 2 is blue.
+int player1Color[3] = {255, 0, 0};
+int player2Color[3] = {0, 0, 255};
+
+// Stores which LED belongs to which player for this round.
+int ledAssignment[2];
+
+// Sets the color of one of the RGB LEDs.
+void setColor(int r, int g, int b, int led) {
+  if (led == 1) {
+    analogWrite(R1, r);
+    analogWrite(G1, g);
+    analogWrite(B1, b);
+  } else {
+    analogWrite(R2, r);
+    analogWrite(G2, g);
+    analogWrite(B2, b);
+  }
+}
+
+// Assigns each player’s color randomly to LED 1 or LED 2.
+void assignColorsToLEDs() {
+  if (random(0, 2) == 0) {
+    ledAssignment[0] = 1;
+    ledAssignment[1] = 2;
+  } else {
+    ledAssignment[0] = 2;
+    ledAssignment[1] = 1;
+  }
+
+  // Apply Player 1 or Player 2 color to LED 1.
+  setColor(
+    ledAssignment[0] == 1 ? player1Color[0] : player2Color[0],
+    ledAssignment[0] == 1 ? player1Color[1] : player2Color[1],
+    ledAssignment[0] == 1 ? player1Color[2] : player2Color[2],
+    1);
+
+  // Apply Player 1 or Player 2 color to LED 2.
+  setColor(
+    ledAssignment[1] == 1 ? player1Color[0] : player2Color[0],
+    ledAssignment[1] == 1 ? player1Color[1] : player2Color[1],
+    ledAssignment[1] == 1 ? player1Color[2] : player2Color[2],
+    2);
+
+  Serial.println("New Round Colors Assigned!");
+  mySerial.println("NEW ROUND");  
+  // Tells Java that a new round started.
+}
+
+// Quick flash animation after each hit.
+void flashEffect() {
+  for (int i = 0; i < 2; i++) {
+    setColor(255, 255, 255, 1);
+    setColor(255, 255, 255, 2);
+    delay(80);
+
+    setColor(0, 0, 0, 1);
+    setColor(0, 0, 0, 2);
+    delay(80);
+  }
+
+  assignColorsToLEDs();  
+  // New color pattern for next hit.
+}
+
+// Resets everything for a new game.
+void resetGame() {
+  scoreP1 = 0;
+  scoreP2 = 0;
+  hit1 = hit2 = false;
+
+  servo1.write(90);
+  servo2.write(90);
+
+  Serial.println("GAME RESET");
+  mySerial.println("GAME RESET");
+}
+
+// Setup runs once at the start.
+void setup() {
+  Serial.begin(9600);  
+  // Debug port.
+
+  mySerial.begin(9600);  
+  // Communication with Java program.
+
+  // Set all RGB pins as outputs.
+  pinMode(R1, OUTPUT); pinMode(G1, OUTPUT); pinMode(B1, OUTPUT);
+  pinMode(R2, OUTPUT); pinMode(G2, OUTPUT); pinMode(B2, OUTPUT);
+
+  servo1.attach(SERVO_PIN1);
+  servo2.attach(SERVO_PIN2);
+
+  // Start both servos centered.
+  servo1.write(90);
+  servo2.write(90);
+
+  Serial.println("Waiting for START from Java...");
+  mySerial.println("READY");  
+  // Signal Java that microcontroller is ready.
+}
+
+void loop() {
+
+  // Listen for START or STOP messages from Java.
+  if (mySerial.available()) {
+    String cmd = mySerial.readStringUntil('\n');
+
+    if (cmd == "START") {
+      resetGame();
+      assignColorsToLEDs();
+      gameActive = true;
+      gameStartTime = millis();  
+      // Start time for speed changes.
+      Serial.println("GAME STARTED");
+    }
+
+    if (cmd == "STOP") {
+      gameActive = false;
+      resetGame();
+      Serial.println("GAME STOPPED");
+    }
+  }
+
+  // If game is not active, skip everything else.
+  if (!gameActive) return;
+
+  // Read both LDR values as voltages.
+  float v1 = (analogRead(LDR1) * 5.0) / 1024.0;
+  float v2 = (analogRead(LDR2) * 5.0) / 1024.0;
+
+  // Determine which sensor belongs to which player this round.
+  int player1LED = (ledAssignment[0] == 1) ? LDR1 : LDR2;
+  int player2LED = (ledAssignment[1] == 2) ? LDR2 : LDR1;
+
+  // Check if Player 1 hits their target.
+  if (!hit1 && (analogRead(player1LED) * 5.0 / 1024.0) > 4.0) {
+    scoreP1++;
+    hit1 = true;
+
+    mySerial.print("P1=");
+    mySerial.println(scoreP1);  
+    // Sends score update to Java.
+
+    flashEffect();  
+    // Flash and change colors.
+  }
+
+  // Check if Player 2 hits their target.
+  if (!hit2 && (analogRead(player2LED) * 5.0 / 1024.0) > 4.0) {
+    scoreP2++;
+    hit2 = true;
+
+    mySerial.print("P2=");
+    mySerial.println(scoreP2);
+
+    flashEffect();
+  }
+
+  // Reset hit detection once lasers are removed.
+  if (v1 < 4.0 && v2 < 4.0) {
+    hit1 = false;
+    hit2 = false;
+  }
+
+  // Increase servo movement speed as the game continues.
+  unsigned long elapsedTime = millis() - gameStartTime;
+  int speedFactor = map(elapsedTime, 0, 60000, 200, 50);  
+  // Delay gets smaller from 200 ms → 50 ms.
+
+  // Move both servos randomly between 60° and 120°.
+  servo1.write(random(60, 120));
+  servo2.write(random(60, 120));
+  delay(speedFactor);  
+  // Delay depends on elapsed time.
+
+  // Move servos back to the center briefly.
+  servo1.write(90);
+  servo2.write(90);
+  delay(200);
+}
