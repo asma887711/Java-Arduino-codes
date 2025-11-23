@@ -1,0 +1,100 @@
+//SerialPortHandle.java
+
+package shooting_game;  
+// Places this class in the same package as the driver file.
+
+import jssc.SerialPort;  
+// Imports the serial port class from the JSSC library.
+
+import jssc.SerialPortException;  
+// Allows catching serial related errors.
+
+class SerialPortHandle {  
+// Class that handles opening, reading, and writing to the serial port.
+
+    SerialPort sp;  
+    // Stores the serial port object.
+
+    String path;  
+    // Stores the COM port name.
+
+    public SerialPortHandle(String path) {  
+    // Runs when the class is created.
+
+        this.sp = new SerialPort(path);  
+        // Creates a serial port object using the COM port name.
+
+        this.path = path;  
+        // Stores the path.
+
+        try {
+            sp.openPort();  
+            // Opens the port for communication.
+
+            sp.setParams(9600, 8, 1, 0);  
+            // Sets baud rate, data bits, stop bits, and parity.
+
+            while (sp.getInputBufferBytesCount() > 0) sp.readBytes();  
+            // Clears any old data left in the buffer.
+
+        } catch (SerialPortException e) {  
+            e.printStackTrace();  
+            // Prints error if the port fails to open.
+        }
+    }
+
+    public String readLine() {  
+    // Reads a whole line from the serial port.
+
+        StringBuilder string = new StringBuilder();  
+        // Holds the incoming characters.
+
+        while (true) {  
+        // Reads one character at a time until a new line is reached.
+
+            try {
+                byte[] buffer = sp.readBytes(1);  
+                // Reads one byte.
+
+                if (buffer == null || buffer.length == 0) continue;  
+                // Ignores empty reads.
+
+                char c = (char) buffer[0];  
+                // Converts the byte to a character.
+
+                if (c == '\n' || c == '\r') {  
+                // Checks for end of line.
+
+                    if (string.length() == 0) continue;  
+                    // Ignore empty new line.
+
+                    break;  
+                    // End reading this message.
+                }
+
+                string.append(c);  
+                // Adds the character to the message.
+
+            } catch (SerialPortException e) {  
+                break;  
+                // If an error happens we stop reading.
+            }
+        }
+
+        return string.toString().trim();  
+        // Returns the full cleaned line.
+    }
+
+    public void send(String msg) {  
+    // Sends a message through the serial port.
+
+        try {
+            sp.writeBytes((msg + "\n").getBytes());  
+            // Sends the message followed by a new line.
+
+        } catch (SerialPortException e) {
+            e.printStackTrace();  
+            // Shows the error in case sending fails.
+        }
+    }
+}
